@@ -13,36 +13,54 @@ jmp -4
 acc +6")
 
 
-(defn parse-src-line [line]
+(defn parse-src-line [line-num line]
   (let [[_ op arg] (re-matches #"(nop|acc|jmp) ([+-]\d+)" line)
         op (keyword op)
         arg (Integer/parseInt arg)]
     {:executed? false
      :op op
-     :arg arg}))
+     :arg arg
+     :line-num line-num}))
 
 (defn parse-src-str [src]
   (->> src
        str/split-lines
-       (mapv parse-src-line)))
+       (map-indexed parse-src-line)
+       (into [])))
 
-(defn run-src [src]
+(def instructions
+  (parse-src-str (slurp "./8.dat")))
+
+(defn run-instructions [instructions]
   (let [acc (atom 0)
-        instructions (atom (parse-src-str src))
+        instructions (atom instructions)
         i (atom 0)]
-    (while (not (get-in @instructions [@i :executed?]))
+    (while (and (get-in @instructions [@i])
+                (not (get-in @instructions [@i :executed?])))
       (swap! instructions assoc-in [@i :executed?] true)
       (case (get-in @instructions [@i :op])
         :nop (swap! i inc)
         :acc (do
                (swap! acc + (get-in @instructions [@i :arg]))
                (swap! i inc))
-        :jmp (swap! i + (get-in @instructions [@i :arg]))))
-    @acc))
+        :jmp (swap! i + (get-in @instructions [@i :arg]))
+        (println (get-in @instructions [@i]))))
+    (if (= (count @instructions) @i)
+      {:result :completed :acc @acc}
+      {:result :looped :acc @acc})))
 
 (def possible-bugs
-  (->> test-src
+  (->> "./8.dat"
+       slurp
        parse-src-str
        (filter (fn [inst]
                  (or (= (:op inst) :nop)
                      (= (:op inst) :jmp))))))
+
+(filter #(= (:result %) :completed)
+ (for [instruction possible-bugs
+              :let [line-num (:line-num instruction)
+                    op (:op instruction)]]
+          (if (= op :nop)
+            (run-instructions (assoc-in instructions [line-num :op] :jmp))
+            (run-instructions (assoc-in instructions [line-num :op] :nop)))))
